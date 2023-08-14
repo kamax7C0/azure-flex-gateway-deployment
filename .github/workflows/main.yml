@@ -1,0 +1,44 @@
+name: Deploy Flex Gateway to Azure Container Instances
+on:
+    workflow_dispatch:
+env:
+  AZURE_REPO_NAME: kognitive2aciregistry
+  AZURE_RESOURCE_GROUP: flex-group
+  ACI_CONTAINER_NAME: flexgatewaycontainer
+  FLEX_GATEWAY_DNS_LABEL: api-gateway
+  FLEX_GATEWAY_PORT: 8081
+jobs:
+ build-and-deploy:
+  runs-on: ubuntu-latest
+  steps:
+    - name: 'Checkout GitHub Action'
+      uses: actions/checkout@master
+    - name: 'Login via Azure CLI'
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    - name: 'Create Azure Registery'
+      run: az acr create --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_REPO_NAME --sku Basic --admin-enabled true
+    - name: 'Build and Push Flex Gateway to Azure Container Instances'
+      run: |
+        echo "${{ secrets.FLEX_GATEWAY_REGISTRATION }}" >> registration.yaml
+        az acr login --name $AZURE_REPO_NAME.azurecr.io
+        docker build . -t $AZURE_REPO_NAME.azurecr.io/flexgateway:${{ github.sha }}
+        docker push $AZURE_REPO_NAME.azurecr.io/flexgateway:${{ github.sha }}
+    - name: 'Deploy Flex Gateway to Azure Container Instances'
+      run: |
+        az container create \
+        --resource-group $AZURE_RESOURCE_GROUP \
+        --name $ACI_CONTAINER_NAME \
+        --image $AZURE_REPO_NAME.azurecr.io/flexgateway:${{ github.sha }} \
+        --dns-name-label $FLEX_GATEWAY_DNS_LABEL \
+        --ports $FLEX_GATEWAY_PORT \
+        --registry-username ${{ secrets.AZURE_USERNAME }} \
+        --registry-password ${{ secrets.AZURE_PASSWORD }} \
+        --os-type Linux \
+        --sku Standard \
+        --ip-address Public \
+        --location germanywestcentral \
+        --protocol TCP \
+        --restart-policy OnFailure \
+        --debug
